@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Template
+
+##########################################################################
+#   Parameters
+##########################################################################
+Parameters:
+  DefaultName:
+    Type: String
+    Default: tutorial_glue
+
+
+Resources:
+##########################################################################
+  #   AWS::Glue::Job
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-glue-job.html#cfn-glue-job-workertype
+  # https://docs.aws.amazon.com/glue/latest/dg/aws-glue-programming-etl-glue-arguments.html
+  ##########################################################################
+  pocGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Description: >
+        pocGlueJob
+      Command:
+        Name: glueetl   # Spark ETL job (JobCommand.Name="glueetl")
+        ScriptLocation: !Sub s3://poc-glue/script/batch/daliy/${DefaultName}.py
+      DefaultArguments: 
+        '--extra-py-files': !Sub s3://poc-glue/script/batch/daliy/layer.zip,s3://poc-glue/script/daliy/libs.zip
+        '--spark-event-logs-path': !Sub s3://poc-glue/sparkHistory/batch/${DefaultName}/
+        '--TempDir': !Sub s3://poc-glue/temporary/batch/${DefaultName}/
+        '--enable-spark-ui': true
+        '--enable-glue-datacatalog': true
+        '--enable-continuous-cloudwatch-log': true
+        '--enable-metrics': true
+        '--continuous-log-logGroup': '/aws-glue/jobs'
+        '--job-bookmark-option': 'job-bookmark-disable'
+        '--job-language': 'python'
+      MaxRetries: 0
+      MaxCapacity: 4
+      Timeout: 300
+      ExecutionProperty:
+        MaxConcurrentRuns: 200   
+      Name: !Sub ${DefaultName}-glueJob
+      Role: !Sub ${DefaultName}-role
+      GlueVersion: 3.0
+      Tags:
+        Name: !Sub ${DefaultName}-glueJob
+  ##########################################################################
+  #   StepFunction에 대한 정의
+  # https://www.davehall.com.au/blog/2020/07/10/logging-step-functions-cloudwatch/
+  ##########################################################################
+  PocStateMachine:
+    Type: AWS::Serverless::StateMachine
+    DependsOn:
+      - pocGlueJob
+    Properties:
+      Name: !Sub ${DefaultName}-states
+      Tags:
+        Name: !Sub ${DefaultName}-states
+      Role: !GetAtt StepFunctionsRole.Arn
+      Logging:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt stateMachineLogGroup.Arn
+        IncludeExecutionData: True
+        Level: ALL #ERROR #ALL
+      DefinitionUri: statemachine/step_function_batch.asl.json
+      DefinitionSubstitutions:
+        pocGlueJob: !Sub ${pocGlueJob}
+  stateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/vendedlogs/states/${DefaultName}-states
+      RetentionInDays: 30
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub states-${DefaultName}-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "states.amazonaws.com"
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+

@@ -1,0 +1,35 @@
+{
+  "Comment": "Aico Nurikids Batch Service Process",
+  "StartAt": "pocGlueJobStart",
+  "States": {
+    "pocGlueJobStart": {
+      "Type": "Task",
+      "End": true,
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${pocGlueJob}",
+        "Arguments": {
+          "--target_dt.$": "$.target_dt",
+          "--stage.$": "$.stage"
+        }
+      },
+      "ResultSelector": {
+        "target_dt.$": "$.Arguments.--target_dt",
+        "stage.$": "$.Arguments.--stage",
+        "JobName.$": "$.JobName",
+        "JobRunState.$": "$.JobRunState"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Timeout",
+            "States.HeartbeatTimeout"
+          ],
+          "IntervalSeconds": 600,
+          "MaxAttempts": 2,
+          "BackoffRate": 1.5
+        }
+      ]
+    } 
+  }
+}
